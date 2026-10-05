@@ -1,0 +1,201 @@
+import {PGlite} from '@electric-sql/pglite';
+import fs from 'node:fs';
+import assert from 'node:assert/strict';
+const pg=new PGlite();
+await pg.exec(`create role service_role bypassrls;create role anon;create role authenticated;create schema auth;create table auth.users(id uuid primary key,email text,email_confirmed_at timestamptz);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;grant usage on schema auth to authenticated;grant execute on function auth.uid() to authenticated;create schema storage;create table storage.buckets(id text primary key,name text,public boolean,file_size_limit bigint,allowed_mime_types text[]);create table storage.objects(id uuid default gen_random_uuid(),bucket_id text,name text);alter table storage.objects enable row level security;`);
+for (const file of fs.readdirSync('supabase/migrations').filter(x=>x.endsWith('.sql')).sort()) await pg.exec(fs.readFileSync('supabase/migrations/'+file,'utf8'));
+const uid=n=>`00000000-0000-4000-8000-${String(n).padStart(12,'0')}`;
+const owner=uid(1),other=uid(2),client=uid(3),stranger=uid(4),shop=uid(5),shop2=uid(6),barber=uid(7),cut=uid(8),addon=uid(9),foreign=uid(10),barber2=uid(11);
+for(const [id,role] of [[owner,'owner'],[other,'owner'],[client,'client'],[stranger,'client']])await pg.query('insert into auth.users values($1);',[id]);
+async function as(id,fn){await pg.query("select set_config('request.jwt.claim.sub',$1,false)",[id]);await pg.exec('set role authenticated');try{return await fn()}finally{await pg.exec('reset role')}}
+for(const [id,role] of [[owner,'owner'],[other,'owner'],[client,'client'],[stranger,'client']])await as(id,()=>pg.query('insert into public.profiles(id,name,role) values($1,$2,$3)',[id,role+' '+id.slice(-2),role]));
+await as(owner,()=>pg.query("insert into public.shops(id,owner_id,name,address,municipality,lat,lng,days,open_hour,close_hour) values($1,$2,'Barbería Uno','Calle 1','Monterrey',25.68,-100.31,'{0,1,2,3,4,5,6}',8,22)",[shop,owner]));
+await as(other,()=>pg.query("insert into public.shops(id,owner_id,name,address,municipality,lat,lng) values($1,$2,'Barbería Dos','Calle 2','Monterrey',25.7,-100.3)",[shop2,other]));
+await as(owner,()=>pg.query("insert into public.barbers(id,shop_id,name) values($1,$2,'Diego')",[barber,shop]));
+await as(other,()=>pg.query("insert into public.barbers(id,shop_id,name) values($1,$2,'Luis')",[barber2,shop2]));
+await as(owner,()=>pg.query("insert into public.services(id,shop_id,name,kind,price_cents,duration_minutes) values($1,$2,'Fade','cut',28000,45),($3,$2,'Barba','addon',12000,15)",[cut,shop,addon]));
+await as(other,()=>pg.query("insert into public.services(id,shop_id,name,kind,price_cents,duration_minutes) values($1,$2,'Ajeno','addon',5000,15)",[foreign,shop2]));
+const day=new Date(Date.now()+3*86400000).toISOString().slice(0,10);
+const slots=await as(client,()=>pg.query('select * from public.available_slots($1,$2,$3,$4)',[barber,day,cut,[addon]]));assert.ok(slots.rows.length);const start=slots.rows[0].starts_at;
+await assert.rejects(as(client,()=>pg.query('select public.book_appointment($1,$2,$3,$4,1,30,12,true)',[barber,cut,[addon],start])));
+await assert.rejects(as(client,()=>pg.query('select public.book_appointment($1,$2,$3,$4,33000,30,12,true)',[barber,cut,[foreign],start])));
+// Accounts cannot switch role or use the other account type's actions.
+await assert.rejects(as(owner,()=>pg.query('select public.book_appointment($1,$2,$3,$4,40000,30,12,true)',[barber,cut,[addon],start])),/Solo las cuentas de cliente/);
+await assert.rejects(as(owner,()=>pg.query("update public.profiles set role='client' where id=$1",[owner])),/tipo de cuenta/);
+await assert.rejects(as(client,()=>pg.query("update public.profiles set role='owner' where id=$1",[client])),/tipo de cuenta/);
+await assert.rejects(as(owner,()=>pg.query('insert into public.favorites values($1,$2)',[owner,shop])));
+await assert.rejects(as(owner,()=>pg.query('insert into public.marketing_consents values($1,$2,true,now())',[owner,shop])));
+await assert.rejects(as(client,()=>pg.query("insert into public.shops(owner_id,name,address,municipality,lat,lng) values($1,'No permitido','Calle','Monterrey',25,-100)",[client])));
+assert.equal((await as(owner,()=>pg.query('select * from public.shops'))).rows.length,1);
+await as(client,()=>pg.query('insert into public.favorites values($1,$2)',[client,shop]));
+await as(client,()=>pg.query("update public.profiles set name='Nombre editado' where id=$1",[client]));
+const booking=await as(client,()=>pg.query('select public.book_appointment($1,$2,$3,$4,40000,30,12,true) as id',[barber,cut,[addon],start]));const id=booking.rows[0].id;
+const snap=await pg.query('select * from public.appointments where id=$1',[id]);assert.equal(snap.rows[0].total_cents,40000);assert.equal(snap.rows[0].deposit_cents,12000);assert.equal((Date.parse(snap.rows[0].ends_at)-Date.parse(snap.rows[0].starts_at))/60000,60);
+await assert.rejects(as(stranger,()=>pg.query('select public.book_appointment($1,$2,$3,$4,40000,30,12,true)',[barber,cut,[addon],start])));
+const partial=new Date(Date.parse(start)+30*60000).toISOString();await assert.rejects(as(stranger,()=>pg.query('select public.book_appointment($1,$2,$3,$4,28000,30,12,true)',[barber,cut,[],partial])));
+assert.equal((await as(other,()=>pg.query('select * from public.appointments'))).rows.length,0);
+assert.equal((await as(owner,()=>pg.query('select * from public.my_customers($1)',[shop]))).rows.length,0);
+await assert.rejects(as(other,()=>pg.query('select * from public.my_customers($1)',[shop])));
+await assert.rejects(as(client,()=>pg.query("update public.appointments set status='completed' where id=$1",[id])));
+await assert.rejects(as(owner,()=>pg.query("select public.transition_appointment($1,'complete')",[id])));
+// Move fixture time only with the test administrator; clients cannot change it.
+await pg.query("update public.appointments set status='arrived',starts_at=now()-interval '2 hours',ends_at=now()-interval '1 hour' where id=$1",[id]);
+await as(owner,()=>pg.query("select public.transition_appointment($1,'complete')",[id]));
+assert.equal((await as(owner,()=>pg.query('select * from public.my_customers($1)',[shop]))).rows.length,1);
+await assert.rejects(as(owner,()=>pg.query("select public.send_promotion($1,$2,'Vuelve','Te esperamos',null)",[uid(21),shop])));
+await as(client,()=>pg.query('insert into public.marketing_consents values($1,$2,true,now())',[client,shop]));
+await as(stranger,()=>pg.query('insert into public.marketing_consents values($1,$2,true,now())',[stranger,shop]));
+await as(owner,()=>pg.query("select public.send_promotion($1,$2,'Vuelve','Te esperamos',null)",[uid(22),shop]));
+assert.equal((await as(client,()=>pg.query('select * from public.inbox'))).rows.length,1);assert.equal((await as(stranger,()=>pg.query('select * from public.inbox'))).rows.length,0);
+await as(owner,()=>pg.query("select public.send_promotion($1,$2,'Vuelve','Te esperamos',null)",[uid(22),shop]));assert.equal((await pg.query('select * from public.inbox')).rows.length,1);
+await as(client,()=>pg.query('update public.marketing_consents set enabled=false where customer_id=$1',[client]));await assert.rejects(as(owner,()=>pg.query("select public.send_promotion($1,$2,'Vuelve','Te esperamos',null)",[uid(23),shop])));
+// Rankings expose aggregates only and accept ratings only for the caller's completed visit.
+await as(owner,()=>pg.query("update public.shops set state='Nuevo León' where id=$1",[shop]));
+await as(other,()=>pg.query("update public.shops set state='Coahuila' where id=$1",[shop2]));
+await assert.rejects(as(stranger,()=>pg.query('insert into public.reviews(appointment_id,customer_id,shop_id,rating) values($1,$2,$3,5)',[id,stranger,shop])));
+await assert.rejects(as(client,()=>pg.query('insert into public.reviews(appointment_id,customer_id,shop_id,rating) values($1,$2,$3,5)',[id,client,shop2])));
+await assert.rejects(as(client,()=>pg.query('insert into public.reviews(appointment_id,customer_id,shop_id,rating) values($1,$2,$3,6)',[id,client,shop])));
+await as(client,()=>pg.query("select public.submit_review($1,5,'Buen corte',null)",[id]));
+await assert.rejects(as(client,()=>pg.query('insert into public.reviews(appointment_id,customer_id,shop_id,rating) values($1,$2,$3,1)',[id,client,shop])));
+await assert.rejects(as(client,()=>pg.query('update public.reviews set rating=1 where appointment_id=$1',[id])));
+assert.equal((await as(stranger,()=>pg.query('select * from public.reviews'))).rows.length,0);
+const ranks=(await as(client,()=>pg.query("select * from public.shop_rankings('municipality','México','Nuevo León','Monterrey')"))).rows;
+assert.equal(ranks.length,1);assert.equal(ranks[0].shop_id,shop);assert.equal(Number(ranks[0].visits),1);assert.equal(Number(ranks[0].rating),5);assert.equal(Number(ranks[0].score),48.10);
+assert.equal((await as(client,()=>pg.query("select * from public.shop_rankings('state','México','Coahuila','')"))).rows.length,0);
+assert.equal((await as(client,()=>pg.query("select * from public.shop_rankings('country','México','','')"))).rows.length,1);
+assert.equal((await as(client,()=>pg.query("select * from public.shop_rankings('country','Otro','','')"))).rows.length,0);
+assert.equal((await as(owner,()=>pg.query("select * from public.shop_rankings('country','México','','')"))).rows.length,1);
+await pg.exec('set role anon');await assert.rejects(pg.query("select * from public.shop_rankings('country','México','','')"));await pg.exec('reset role');
+// Tracking: 20-minute gate, owner-only visibility, revocation and expiry.
+await pg.query("update public.appointments set status='confirmed',starts_at=now()+interval '21 minutes',ends_at=now()+interval '81 minutes' where id=$1",[id]);await assert.rejects(as(client,()=>pg.query('select public.start_sharing($1,true)',[id])));
+await pg.query("update public.appointments set starts_at=now()+interval '19 minutes',ends_at=now()+interval '79 minutes' where id=$1",[id]);
+const token=(await as(client,()=>pg.query('select public.start_sharing($1,true) as token',[id]))).rows[0].token;
+await assert.rejects(as(stranger,()=>pg.query('select public.update_location($1,$2,25.68,-100.31,10)',[id,token])));
+await as(client,()=>pg.query('select public.update_location($1,$2,25.68,-100.31,10)',[id,token]));
+assert.equal((await as(owner,()=>pg.query('select * from public.arrivals($1)',[shop]))).rows.length,1);await assert.rejects(as(other,()=>pg.query('select * from public.arrivals($1)',[shop])));
+await as(client,()=>pg.query('select public.stop_sharing($1)',[id]));await assert.rejects(as(client,()=>pg.query('select public.update_location($1,$2,25.68,-100.31,10)',[id,token])));
+assert.equal((await as(owner,()=>pg.query('select * from public.arrivals($1)',[shop]))).rows.length,0);
+console.log('PASS: schema, RLS tenant separation, dynamic prices and durations, overlapping reservations, CRM completed visits, marketing consent, idempotency, location window and revocation.');
+// Loyalty: owner opt-in, completed-only stamps, immutable terms after accrual.
+await assert.rejects(as(client,()=>pg.query('select public.save_loyalty($1,2,5000,true)',[shop])));
+await assert.rejects(as(other,()=>pg.query('select public.save_loyalty($1,2,5000,true)',[shop])));
+await as(owner,()=>pg.query('select public.save_loyalty($1,2,5000,true)',[shop]));
+assert.equal((await as(client,()=>pg.query('select * from public.loyalty_stamps'))).rows.length,0);
+await assert.rejects(as(client,()=>pg.query('insert into public.loyalty_stamps(appointment_id,shop_id,customer_id) values($1,$2,$3)',[id,shop,client])));
+await pg.query("update public.appointments set status='arrived',starts_at=now()-interval '2 hours',ends_at=now()-interval '1 hour' where id=$1",[id]);
+await as(owner,()=>pg.query("select public.transition_appointment($1,'complete')",[id]));
+assert.equal((await as(client,()=>pg.query('select * from public.loyalty_stamps'))).rows.length,1);
+await assert.rejects(as(owner,()=>pg.query('select public.save_loyalty($1,3,5000,true)',[shop])));
+await assert.rejects(as(owner,()=>pg.query("select public.transition_appointment($1,'complete')",[id])));
+async function nextBooking(reward=null,expectedDiscount=5000){const opts=await as(client,()=>pg.query('select * from public.available_slots($1,$2,$3,$4)',[barber,day,cut,[addon]]));assert.ok(opts.rows.length);return (await as(client,()=>pg.query(reward?'select public.book_with_reward($1,$2,$3,$4,40000,30,12,true,$5,$6) as id':'select public.book_appointment($1,$2,$3,$4,40000,30,12,true) as id',reward?[barber,cut,[addon],opts.rows[0].starts_at,reward,expectedDiscount]:[barber,cut,[addon],opts.rows[0].starts_at]))).rows[0].id}
+const second=await nextBooking();await pg.query("update public.appointments set status='arrived',starts_at=now()-interval '2 hours',ends_at=now()-interval '1 hour' where id=$1",[second]);await as(owner,()=>pg.query("select public.transition_appointment($1,'complete')",[second]));
+const earned=(await as(client,()=>pg.query('select * from public.loyalty_rewards'))).rows;assert.equal(earned.length,1);assert.equal(earned[0].discount_cents,5000);assert.equal((await as(stranger,()=>pg.query('select * from public.loyalty_rewards'))).rows.length,0);assert.equal((await as(other,()=>pg.query('select * from public.loyalty_rewards'))).rows.length,0);
+await assert.rejects(as(client,()=>pg.query('update public.loyalty_rewards set discount_cents=100000')));
+await assert.rejects(nextBooking(earned[0].id,6000));
+await assert.rejects(as(stranger,()=>pg.query('select public.book_with_reward($1,$2,$3,$4,40000,30,12,true,$5,5000)',[barber,cut,[addon],start,earned[0].id])));
+await assert.rejects(as(client,()=>pg.query('select public.book_with_reward($1,$2,$3,$4,40000,30,12,true,$5,5000)',[barber2,foreign,[],start,earned[0].id])));
+await assert.rejects(as(client,()=>pg.query('select public.book_with_reward($1,$2,$3,$4,null,30,12,true,$5,5000)',[barber,cut,[addon],start,earned[0].id])));
+const discounted=await nextBooking(earned[0].id);const priced=(await pg.query('select total_cents,discount_cents,deposit_cents from public.appointments where id=$1',[discounted])).rows[0];assert.deepEqual(priced,{total_cents:35000,discount_cents:5000,deposit_cents:10500});
+await assert.rejects(nextBooking(earned[0].id));
+await as(client,()=>pg.query("select public.transition_appointment($1,'cancel')",[discounted]));assert.equal((await pg.query('select used_appointment_id from public.loyalty_rewards where id=$1',[earned[0].id])).rows[0].used_appointment_id,null);
+const noShow=await nextBooking(earned[0].id);await pg.query("update public.appointments set starts_at=now()-interval '30 minutes',ends_at=now()+interval '30 minutes' where id=$1",[noShow]);await as(owner,()=>pg.query("select public.transition_appointment($1,'no_show')",[noShow]));assert.equal((await pg.query('select used_appointment_id from public.loyalty_rewards where id=$1',[earned[0].id])).rows[0].used_appointment_id,noShow);
+assert.equal((await pg.query('select * from public.loyalty_stamps')).rows.length,2);
+await as(owner,()=>pg.query('select public.save_loyalty($1,2,5000,false)',[shop]));const paused=await nextBooking();await pg.query("update public.appointments set status='arrived',starts_at=now()-interval '2 hours',ends_at=now()-interval '1 hour' where id=$1",[paused]);await as(owner,()=>pg.query("select public.transition_appointment($1,'complete')",[paused]));assert.equal((await pg.query('select * from public.loyalty_stamps')).rows.length,2);
+// Today uses the shop's date, actual service duration, closed days and overlaps.
+await pg.query("update public.shops set timezone=case when extract(hour from now() at time zone 'UTC')>=12 then 'Etc/GMT+12' else 'UTC' end,open_hour=0,close_hour=23,days='{0,1,2,3,4,5,6}' where id=$1",[shop]);
+const available=(await as(client,()=>pg.query('select * from public.available_today($1)',[[shop]]))).rows;assert.equal(available.length,1);assert.equal(available[0].service_id,cut);assert.ok(Date.parse(available[0].starts_at)>Date.now());
+const todayBooked=(await as(client,()=>pg.query('select public.book_appointment($1,$2,$3,$4,28000,30,12,true) as id',[barber,cut,[],available[0].starts_at]))).rows[0].id;await pg.query("update public.appointments set ends_at=starts_at+interval '24 hours' where id=$1",[todayBooked]);assert.equal((await as(client,()=>pg.query('select * from public.available_today($1)',[[shop]]))).rows.length,0);
+await as(owner,()=>pg.query("select public.transition_appointment($1,'business_cancel')",[todayBooked]));assert.equal((await as(client,()=>pg.query('select * from public.available_today($1)',[[shop]]))).rows.length,1);
+await pg.query('update public.shops set active=false where id=$1',[shop]);assert.equal((await as(client,()=>pg.query('select * from public.available_today($1)',[[shop]]))).rows.length,0);
+await assert.rejects(as(owner,()=>pg.query('select * from public.available_today($1)',[[shop]])));
+console.log('PASS: today availability, repeat-safe pricing, loyalty ownership, earning, redemption, cancellation, no-shows, pause and protected writes.');
+
+// Booking experience: server prices, moved slots, waiting clients, private media and account closure.
+await pg.query("update public.shops set active=true,timezone='America/Monterrey',open_hour=8,close_hour=22 where id=$1",[shop]);
+const offer=uid(31);
+await as(owner,()=>pg.query("insert into public.offers(id,shop_id,service_id,title,kind,value,ends_at) values($1,$2,$3,'Semana Pulso','percent',20,now()+interval '10 days')",[offer,shop,cut]));
+await assert.rejects(as(other,()=>pg.query("insert into public.offers(shop_id,service_id,title,kind,value,ends_at) values($1,$2,'Ajena','percent',20,now()+interval '10 days')",[shop,cut])));
+const opts=(await as(client,()=>pg.query('select * from public.available_slots($1,$2,$3,$4)',[barber,day,cut,[addon]]))).rows;
+const offerBook=(await as(client,()=>pg.query('select public.book_with_offer($1,$2,$3,$4,40000,30,12,true,$5,5600) id',[barber,cut,[addon],opts[0].starts_at,offer]))).rows[0].id;
+const op=(await pg.query('select total_cents,deposit_cents,discount_cents from public.appointments where id=$1',[offerBook])).rows[0];assert.deepEqual(op,{total_cents:34400,deposit_cents:10320,discount_cents:5600});
+await assert.rejects(as(client,()=>pg.query('select public.book_with_offer($1,$2,$3,$4,40000,30,12,true,$5,9999)',[barber,cut,[addon],opts[8].starts_at,offer])));
+await assert.rejects(as(client,()=>pg.query('select public.book_with_offer($1,$2,$3,$4,40000,null,12,true,$5,5600)',[barber,cut,[addon],opts[8].starts_at,offer])));
+await assert.rejects(as(stranger,()=>pg.query('select * from public.reschedule_slots($1,$2)',[offerBook,day])));
+const moves=(await as(client,()=>pg.query('select * from public.reschedule_slots($1,$2)',[offerBook,day]))).rows;
+assert.ok(moves.some(t=>Date.parse(t.starts_at)===Date.parse(opts[0].starts_at)),'Own slot must be available for moving');
+const newStart=moves[moves.length-1].starts_at;
+await as(client,()=>pg.query('select public.reschedule_appointment($1,$2,$3)',[offerBook,newStart,opts[0].starts_at]));
+assert.deepEqual((await pg.query('select total_cents,deposit_cents,discount_cents from public.appointments where id=$1',[offerBook])).rows[0],op);
+await assert.rejects(as(client,()=>pg.query('select public.reschedule_appointment($1,$2,$3)',[offerBook,opts[0].starts_at,opts[0].starts_at])));
+assert.ok((await as(client,()=>pg.query('select * from public.activity_notifications where appointment_id=$1',[offerBook]))).rows.length);
+assert.equal((await as(stranger,()=>pg.query('select * from public.activity_notifications where appointment_id=$1',[offerBook]))).rows.length,0);
+await as(owner,()=>pg.query('update public.barbers set active=false where id=$1',[barber]));
+assert.equal((await as(client,()=>pg.query('select * from public.available_slots($1,$2,$3,$4)',[barber,day,cut,[]]))).rows.length,0);
+assert.equal((await as(client,()=>pg.query('select status from public.appointments where id=$1',[offerBook]))).rows[0].status,'confirmed');
+await as(owner,()=>pg.query('update public.barbers set active=true where id=$1',[barber]));
+// Fully occupied day: one freed slot sends a persistent notice, without allocating it.
+await as(client,()=>pg.query("select public.transition_appointment($1,'cancel')",[offerBook]));
+const full=await nextBooking();await pg.query("update public.appointments set starts_at=($2::date+interval '8 hours') at time zone 'America/Monterrey',ends_at=($2::date+interval '22 hours') at time zone 'America/Monterrey' where id=$1",[full,day]);
+await as(stranger,()=>pg.query('select public.join_waitlist($1,$2,$3)',[barber,cut,day]));
+assert.equal((await as(stranger,()=>pg.query('select * from public.waitlist'))).rows.length,1);
+assert.equal((await as(client,()=>pg.query('select * from public.waitlist'))).rows.length,0);
+await as(owner,()=>pg.query("select public.transition_appointment($1,'business_cancel')",[full]));
+assert.equal((await as(stranger,()=>pg.query('select * from public.waitlist'))).rows.length,0);
+assert.equal((await as(stranger,()=>pg.query("select * from public.activity_notifications where title='Se liberó un horario'"))).rows.length,1);
+// Storage capability and reference ownership.
+const mediaBook=await nextBooking();const path=`${client}/${mediaBook}/reference/${uid(32)}.jpg`;
+await pg.query("insert into storage.objects(bucket_id,name) values('appointment-media',$1)",[path]);
+await as(client,()=>pg.query('select public.set_reference($1,$2)',[mediaBook,path]));
+assert.equal((await as(owner,()=>pg.query('select public.media_access($1,false) ok',[path]))).rows[0].ok,true);
+assert.equal((await as(stranger,()=>pg.query('select public.media_access($1,false) ok',[path]))).rows[0].ok,false);
+await assert.rejects(as(stranger,()=>pg.query('select public.set_reference($1,$2)',[mediaBook,path])));
+await assert.rejects(as(client,()=>pg.query("select public.submit_review($1,5,'Muy bien',null)",[mediaBook])));
+const reviewPath=`${client}/${paused}/review/${uid(33)}.jpg`;
+await pg.query("insert into storage.objects(bucket_id,name) values('appointment-media',$1)",[reviewPath]);
+await as(client,()=>pg.query("select public.submit_review($1,4,'Buen resultado',$2)",[paused,reviewPath]));
+await assert.rejects(as(client,()=>pg.query("select public.submit_review($1,5,'Duplicada',null)",[paused])));
+assert.equal((await as(stranger,()=>pg.query('select public.media_access($1,false) ok',[reviewPath]))).rows[0].ok,true);
+assert.ok((await as(stranger,()=>pg.query('select * from public.shop_reviews($1)',[shop]))).rows.some(r=>r.comment==='Buen resultado'));
+await assert.rejects(as(other,()=>pg.query('select public.business_stats($1)',[shop])));
+assert.ok(Number((await as(owner,()=>pg.query('select public.business_stats($1) s',[shop]))).rows[0].s.completed)>0);
+// Storage regression: real RLS evaluates the object path, never shops.name.
+await pg.exec('grant usage on schema storage to authenticated;grant select,insert,delete on storage.objects to authenticated');
+const portfolioPath=`${owner}/${shop}/${uid(71)}.jpg`;
+await as(owner,()=>pg.query("insert into storage.objects(bucket_id,name) values('portfolio',$1)",[portfolioPath]));
+await assert.rejects(as(other,()=>pg.query("insert into storage.objects(bucket_id,name) values('portfolio',$1)",[`${other}/${shop}/${uid(72)}.jpg`])));
+await assert.rejects(as(client,()=>pg.query("insert into storage.objects(bucket_id,name) values('portfolio',$1)",[`${client}/${shop}/${uid(73)}.jpg`])));
+// Financial preferences are visible only to their owner, never through business CRM.
+await as(client,()=>pg.query("insert into public.account_details(user_id,city,payment_method,paypal_email) values($1,'Monterrey','paypal','test@example.test')",[client]));
+assert.equal((await as(owner,()=>pg.query('select * from public.account_details'))).rows.length,0);
+await assert.rejects(as(other,()=>pg.query("insert into public.account_details(user_id) values($1)",[client])));
+// A shop owner can save a result only for their attended appointments, with photo consent.
+const haircutPath=`${owner}/${paused}/${uid(74)}.jpg`;
+await as(owner,()=>pg.query("insert into storage.objects(bucket_id,name) values('haircut-records',$1)",[haircutPath]));
+await assert.rejects(as(other,()=>pg.query("insert into storage.objects(bucket_id,name) values('haircut-records',$1)",[`${other}/${paused}/${uid(75)}.jpg`])));
+await assert.rejects(as(owner,()=>pg.query('select public.save_haircut($1,$2,$3,false)',[paused,'Fade 0.5',haircutPath])));
+await as(owner,()=>pg.query('select public.save_haircut($1,$2,$3,true)',[paused,'Fade 0.5',haircutPath]));
+assert.equal((await as(client,()=>pg.query('select * from public.haircut_records'))).rows.length,1);
+assert.equal((await as(other,()=>pg.query('select * from public.haircut_records'))).rows.length,0);
+assert.equal((await as(stranger,()=>pg.query('select public.haircut_media_access($1,false) ok',[haircutPath]))).rows[0].ok,false);
+assert.equal((await as(client,()=>pg.query('select public.haircut_media_access($1,false) ok',[haircutPath]))).rows[0].ok,true);
+await assert.rejects(as(client,()=>pg.query('select public.save_haircut($1,$2,$3,true)',[paused,'Wrong',haircutPath])));
+assert.ok((await as(owner,()=>pg.query('select * from public.ranking_regions()'))).rows.length);
+console.log('PASS: portfolio upload RLS regression, private account preferences, authorized haircut photos, consent and owner rankings.');
+// Full profile upsert is still authorized, but clients cannot set their own tombstone.
+await as(client,()=>pg.query("insert into public.profiles(id,name,role) values($1,'Nuevo nombre','client') on conflict(id) do update set id=excluded.id,name=excluded.name,role=excluded.role",[client]));
+await assert.rejects(as(client,()=>pg.query('update public.profiles set deleted_at=now() where id=$1',[client])));
+await assert.rejects(as(client,()=>pg.query('select public.admin_close_account($1)',[stranger])));
+await pg.query("select set_config('request.jwt.claim.sub','',false)");await pg.exec('set role service_role');try{await pg.query('select public.admin_close_account($1)',[client])}finally{await pg.exec('reset role')}
+assert.equal((await pg.query('select name,deleted_at from public.profiles where id=$1',[client])).rows[0].name,'Cuenta eliminada');
+assert.equal((await pg.query('select status,reference_path from public.appointments where id=$1',[mediaBook])).rows[0].status,'cancelled');
+assert.equal((await as(client,()=>pg.query('select * from public.shops'))).rows.length,0);
+assert.equal((await as(client,()=>pg.query('select public.media_access($1,false) ok',[path]))).rows[0].ok,false);
+await assert.rejects(as(client,()=>pg.query('select public.book_appointment($1,$2,$3,$4,40000,30,12,true)',[barber,cut,[addon],start])));
+await pg.query('delete from auth.users where id=$1',[client]);
+await pg.query("select set_config('request.jwt.claim.sub','',false)");await pg.exec('set role service_role');try{await pg.query('select public.admin_close_account($1)',[owner])}finally{await pg.exec('reset role')}
+assert.equal((await pg.query('select active,name from public.shops where id=$1',[shop])).rows[0].active,false);
+assert.equal((await as(owner,()=>pg.query('select public.owns_shop($1) ok',[shop]))).rows[0].ok,false);
+await pg.query('delete from auth.users where id=$1',[owner]);
+console.log('PASS: offer prices, rescheduling, waitlist notices, availability toggle, private media, verified reviews, statistics, account closure and revoked JWT access.');
+
+await pg.close();

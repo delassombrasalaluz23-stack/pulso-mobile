@@ -1,0 +1,6 @@
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
+import {Platform} from 'react-native';
+import {db} from './supabase';
+export async function enablePush(user:string){if(!Device.isDevice)throw Error('Prueba las notificaciones en un teléfono físico.');const projectId=Constants.expoConfig?.extra?.eas?.projectId;if(!projectId)throw Error('Las notificaciones se habilitarán cuando esté configurada la compilación móvil.');if(Platform.OS==='android'){await Notifications.setNotificationChannelAsync('promotions',{name:'Promociones autorizadas',importance:Notifications.AndroidImportance.DEFAULT});await Notifications.setNotificationChannelAsync('appointments',{name:'Citas y recordatorios',importance:Notifications.AndroidImportance.HIGH});}const permission=await Notifications.requestPermissionsAsync();if(permission.status!=='granted')throw Error('No activaste las notificaciones. Puedes seguir viendo tus mensajes dentro de Pulso.');const token=(await Notifications.getExpoPushTokenAsync({projectId})).data;const {error}=await db().from('push_tokens').upsert({token,user_id:user,updated_at:new Date().toISOString()});if(error)throw error;return token}

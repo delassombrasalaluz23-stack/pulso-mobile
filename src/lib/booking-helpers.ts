@@ -1,0 +1,4 @@
+import {type Appointment,type Service,type Barber} from './types';
+export function localDay(date:Date,timezone='America/Monterrey'){const parts=new Intl.DateTimeFormat('en-CA',{timeZone:timezone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date);return ['year','month','day'].map(k=>parts.find(p=>p.type===k)!.value).join('-')}
+export function nextDay(day:string,offset:number){const d=new Date(day+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+offset);return d.toISOString().slice(0,10)}
+export function repeatSelection(a:Appointment,services:Service[],barbers:Barber[]){const ids=a.lines.map(l=>l.id).filter(Boolean);const cut=services.find(s=>s.kind==='cut'&&ids.includes(s.id))?.id??'';const extras=services.filter(s=>s.kind==='addon'&&ids.includes(s.id)).map(s=>s.id);const barber=barbers.some(b=>b.id===a.barber_id)?a.barber_id:'';const missing=!cut||!barber||ids.some(id=>!services.some(s=>s.id===id));return {cut,extras,barber,missing}}
