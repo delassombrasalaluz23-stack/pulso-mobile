@@ -19,14 +19,15 @@
     "expo-router": "~57.0.24",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
+    "leaflet": "1.9.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.3",
-    "react-native-maps": "1.27.2",
     "react-native-reanimated": "4.5.1",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
     "react-native-url-polyfill": "^4.0.0",
+    "react-native-webview": "13.16.1",
     "react-native-worklets": "0.10.1"
   },
   "devDependencies": {
@@ -49,7 +50,8 @@
     "check:ios": "node --env-file-if-exists=.env scripts/check-ios.mjs",
     "ios:preview": "npm run check:ios && npx eas-cli@latest build --platform ios --profile preview",
     "android:preview": "npx eas-cli@latest build --platform android --profile preview",
-    "build:stores": "npx eas-cli@latest build --platform all --profile production"
+    "build:stores": "npx eas-cli@latest build --platform all --profile production",
+    "bundle:map": "node scripts/bundle-leaflet.mjs"
   },
   "private": true
 }
