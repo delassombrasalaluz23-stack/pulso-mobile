@@ -4,7 +4,9 @@
   "main": "expo-router/entry",
   "dependencies": {
     "@expo/vector-icons": "^15.0.2",
+    "@maplibre/maplibre-react-native": "11.5.0",
     "@supabase/supabase-js": "^2.117.2",
+    "@types/geojson": "7946.0.16",
     "base64-arraybuffer": "^1.0.2",
     "expo": "~57.0.26",
     "expo-constants": "~57.0.20",

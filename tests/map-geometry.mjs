@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import ts from 'typescript';
+import assert from 'node:assert/strict';
+const m={exports:{}};
+new Function('exports',ts.transpileModule(fs.readFileSync('src/lib/map-geometry.ts','utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText)(m.exports);
+const {validRegion,regionBounds,viewportRegion,pinFeatures}=m.exports;
+const r={latitude:25.6866,longitude:-100.3161,latitudeDelta:.08,longitudeDelta:.1};
+const b=regionBounds(r);const restored=viewportRegion([r.longitude,r.latitude],b);
+for(const k of Object.keys(r))assert.ok(Math.abs(r[k]-restored[k])<1e-8);
+assert.equal(validRegion({...r,latitude:Infinity}),false);
+assert.equal(validRegion({...r,longitudeDelta:0}),false);
+assert.equal(viewportRegion([181,10],[179,9,-179,11]).longitudeDelta,2);
+assert.equal(viewportRegion([181,10],[179,9,-179,11]).longitude,-179);
+const pins=pinFeatures([{id:'shop',latitude:25,longitude:-100,title:'Barbería <uno>'},{id:'invalid',latitude:NaN,longitude:0}]);
+assert.equal(pins.features.length,1);assert.deepEqual(pins.features[0].geometry.coordinates,[-100,25]);assert.equal(pins.features[0].properties.title,'Barbería <uno>');
+assert.deepEqual(regionBounds({...r,latitude:85,latitudeDelta:20}).slice(1),[75,-100.26610000000001,85]);
+console.log('PASS: map coordinate order, bounds, dateline, invalid coordinates and marker data.');
