@@ -2,9 +2,9 @@ import {Alert,Pressable,ScrollView,StyleSheet,Text,TextInput,View,type TextInput
 import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {useSegments} from 'expo-router';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import type {ReactNode,ComponentProps} from 'react';
+import type {ReactNode,ComponentProps,Ref} from 'react';
 export const colors={bg:'#F5F6F3',ink:'#142C23',muted:'#68766F',line:'#E3E9E3',green:'#163D2E',lime:'#D6F58A',white:'#FFFFFF'};
-export function Screen({children}:{children:ReactNode}){const insets=useSafeAreaInsets();const segments=useSegments();const top=segments[0]==='(tabs)'||segments[0]==='login';return <ScrollView style={s.screen} contentContainerStyle={[s.content,{paddingTop:top?insets.top+22:20}]} keyboardShouldPersistTaps="handled">{children}</ScrollView>}
+export function Screen({children,footer,scrollRef}:{children:ReactNode;footer?:ReactNode;scrollRef?:Ref<ScrollView>}){const insets=useSafeAreaInsets();const segments=useSegments();const top=segments[0]==='(tabs)'||segments[0]==='login';return <View style={{flex:1,backgroundColor:colors.bg}}><ScrollView ref={scrollRef} style={s.screen} contentContainerStyle={[s.content,{paddingTop:top?insets.top+22:20}]} keyboardShouldPersistTaps="handled">{children}</ScrollView>{footer&&<View style={{padding:16,paddingBottom:Math.max(insets.bottom,12),backgroundColor:'white',borderTopWidth:1,borderTopColor:colors.line}}>{footer}</View>}</View>}
 export function Title({children}:{children:ReactNode}){return <Text accessibilityRole="header" style={s.title}>{children}</Text>}
 export function Copy({children}:{children:ReactNode}){return <Text style={s.copy}>{children}</Text>}
 export function Card({children,style}:{children:ReactNode;style?:ViewStyle}){return <View style={[s.card,style]}>{children}</View>}

@@ -28,7 +28,7 @@ const PulsoMap=forwardRef<MapHandle,Props>(function PulsoMap({style,initialRegio
  <Camera ref={camera} initialViewState={initial.current} minZoom={2} maxZoom={19}/>
  <GeoJSONSource id="pulso-shops" data={pinFeatures(markers)} onPress={e=>{e.stopPropagation();const id=e.nativeEvent.features[0]?.properties?.id;if(typeof id==='string'&&markers.some(p=>p.id===id))onMarkerPress?.(id)}}>
  <Layer id="pulso-shop-dots" type="circle" paint={{'circle-radius':10,'circle-color':['get','color'],'circle-stroke-color':'#ffffff','circle-stroke-width':3}}/>
- <Layer id="pulso-shop-labels" type="symbol" minzoom={12} layout={{'text-field':['get','title'],'text-font':['Noto Sans Regular'],'text-size':12,'text-offset':[0,1.5],'text-anchor':'top','text-max-width':12}} paint={{'text-color':'#163D2E','text-halo-color':'#ffffff','text-halo-width':2}}/>
+ <Layer id="pulso-shop-labels" type="symbol" minzoom={12} layout={{'text-field':['get','title'],'text-font':['Noto Sans Regular'],'text-size':13,'text-offset':[0,1.5],'text-anchor':'top','text-max-width':12}} paint={{'text-color':['get','color'],'text-halo-color':'#ffffff','text-halo-width':4}}/>
  </GeoJSONSource>
  <GeoJSONSource id="pulso-user" data={user}><Layer id="pulso-user-halo" type="circle" paint={{'circle-radius':16,'circle-color':'#2678d8','circle-opacity':0.15}}/><Layer id="pulso-user-dot" type="circle" paint={{'circle-radius':7,'circle-color':'#2678d8','circle-stroke-color':'#fff','circle-stroke-width':3}}/></GeoJSONSource>
  </Map>
