@@ -1,0 +1,6 @@
+import {useCallback,useState} from 'react';
+import {Text} from 'react-native';
+import {useFocusEffect} from 'expo-router';
+import {rpc} from '../lib/supabase';
+import {Button,Card,Copy,Failure,s} from './ui';
+export default function AdminOperations(){const [data,setData]=useState<Record<string,number>|null>(null),[error,setError]=useState('');const load=useCallback(async()=>{try{setData(await rpc('admin_operations'));setError('')}catch(e){setError((e as Error).message)}},[]);useFocusEffect(useCallback(()=>{void load();const t=setInterval(()=>void load(),60000);return()=>clearInterval(t)},[load]));return <Card><Text style={s.heading}>Atención operativa</Text><Failure message={error}/>{data&&<>{[['refund_failed','Devoluciones con error'],['refund_pending','Devoluciones pendientes'],['push_failed','Avisos con error'],['push_delayed','Envíos demorados más de 15 min'],['expired_payments','Reservas vencidas por liberar'],['pending_changes','Cambios esperando respuesta'],['ready_shops','Barberías habilitadas para cobros'],['push_devices','Dispositivos registrados para avisos']].map(([k,l])=><Copy key={k}>{l}: {data[k]}</Copy>)}</>}<Copy>Se actualiza al abrir esta pantalla y cada minuto. Los avisos no equivalen a mensajes leídos.</Copy><Button secondary title="Actualizar estado" onPress={load}/></Card>}

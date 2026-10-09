@@ -1,0 +1,5 @@
+import {useState} from 'react';
+import {Modal,Share,View} from 'react-native';
+import QRCode from 'react-native-qrcode-svg';
+import {Button,Copy,Screen,Title,report,colors} from './ui';
+export default function ShopShare({id,name}:{id:string;name:string}){const [open,setOpen]=useState(false);const url=`pulso://visit/${id}`;return <><Button secondary title="Compartir barbería y QR" onPress={()=>setOpen(true)}/><Modal visible={open} presentationStyle="pageSheet" onRequestClose={()=>setOpen(false)}><Screen><Title>{name}</Title><Copy>Abre este enlace o escanea el QR en un teléfono con Pulso instalada.</Copy><View style={{alignItems:'center',padding:24,backgroundColor:'white',borderRadius:24}}><QRCode value={url} size={230} color={colors.green}/></View><Copy>Durante las pruebas se necesita tener la APK instalada. Este enlace aún no tiene página de descarga.</Copy><Button title="Compartir enlace" onPress={async()=>{try{await Share.share({message:`Conoce ${name} en Pulso: ${url}`})}catch(e){report(e)}}}/><Button secondary title="Volver" onPress={()=>setOpen(false)}/></Screen></Modal></>}

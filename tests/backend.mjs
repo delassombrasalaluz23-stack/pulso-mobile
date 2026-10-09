@@ -124,7 +124,9 @@ await assert.rejects(as(stranger,()=>pg.query('select * from public.reschedule_s
 const moves=(await as(client,()=>pg.query('select * from public.reschedule_slots($1,$2)',[offerBook,day]))).rows;
 assert.ok(moves.some(t=>Date.parse(t.starts_at)===Date.parse(opts[0].starts_at)),'Own slot must be available for moving');
 const newStart=moves[moves.length-1].starts_at;
-await as(client,()=>pg.query('select public.reschedule_appointment($1,$2,$3)',[offerBook,newStart,opts[0].starts_at]));
+await as(client,()=>pg.query('select public.propose_reschedule($1,$2,$3)',[offerBook,newStart,opts[0].starts_at]));
+const proposal=(await as(owner,()=>pg.query("select id from public.reschedule_requests where appointment_id=$1 and status='pending'",[offerBook]))).rows[0];
+await as(owner,()=>pg.query("select public.respond_reschedule($1,'accepted')",[proposal.id]));
 assert.deepEqual((await pg.query('select total_cents,deposit_cents,discount_cents from public.appointments where id=$1',[offerBook])).rows[0],op);
 await assert.rejects(as(client,()=>pg.query('select public.reschedule_appointment($1,$2,$3)',[offerBook,opts[0].starts_at,opts[0].starts_at])));
 assert.ok((await as(client,()=>pg.query('select * from public.activity_notifications where appointment_id=$1',[offerBook]))).rows.length);

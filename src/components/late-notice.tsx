@@ -1,0 +1,7 @@
+import {useClock} from '../lib/clock';
+import {useState} from 'react';
+import {Alert,View} from 'react-native';
+import {rpc} from '../lib/supabase';
+import {type Appointment} from '../lib/types';
+import {Button,Choice,Copy,report,s} from './ui';
+export default function LateNotice({a,owner,onChange}:{a:Appointment;owner:boolean;onChange:()=>Promise<void>}){const [open,setOpen]=useState(false),[busy,setBusy]=useState(false);const active=a.status==='confirmed',now=useClock();return <View style={{gap:10}}>{active&&a.late_minutes&&<Copy>{owner?'El cliente avisó':'Avisaste'}: {a.late_minutes} minutos de retraso. La hora y las condiciones de la cita no cambian.</Copy>}{!owner&&active&&now>=Date.parse(a.starts_at)-3600000&&now<=Date.parse(a.starts_at)+1800000&&<><Button secondary title="Voy a llegar tarde" onPress={()=>setOpen(!open)}/>{open&&<><Copy>¿Cuántos minutos después de tu hora? Avisar no garantiza que puedan atenderte ni elimina la penalización.</Copy><View style={s.row}>{[5,10,15,20,30].map(n=><Choice key={n} label={`${n} min`} selected={a.late_minutes===n} onPress={()=>{if(busy)return;Alert.alert('Avisar a la barbería',`Llegaré aproximadamente ${n} minutos tarde.`,[{text:'Volver',style:'cancel'},{text:'Enviar aviso',onPress:async()=>{setBusy(true);try{await rpc('notify_late',{p_id:a.id,p_minutes:n});setOpen(false);await onChange()}catch(e){report(e)}finally{setBusy(false)}}}])}}/>)}</View></>}</>}</View>}
