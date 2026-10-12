@@ -1,0 +1,14 @@
+export type AdminRow={id:string;shop_id:string;shop_name:string;barber_name:string;starts_at:string;day:string;status:string;total_cents:number;deposit_cents:number;discount_cents:number;payment_mode:string;outcome:string;payment_state:string|null;provider_live:boolean;paid_cents:number};
+export type AdminShop={id:string;name:string;municipality:string;state:string;active:boolean;visible:boolean;verified:boolean;suspended:boolean;barbers:number;services:number};
+export type AdminReport={start:string;end:string;timezone:string;generated_at:string;accounts:number;new_accounts:number;pending_reports:number;shops:AdminShop[];rows:AdminRow[]};
+export function summarizeAdmin(r:AdminReport){
+ const days=[];for(let t=Date.parse(r.start+'T00:00:00Z');t<=Date.parse(r.end+'T00:00:00Z');t+=86400000)days.push({day:new Date(t).toISOString().slice(0,10),appointments:0,completed:0,value:0,collected:0,refunded:0});
+ const byDay=new Map(days.map(x=>[x.day,x]));const shops=r.shops.map(s=>({...s,appointments:0,completed:0,value:0,collected:0,refunded:0}));const byShop=new Map(shops.map(s=>[s.id,s]));
+ let completed=0,cancelled=0,noShow=0,value=0,collected=0,refunded=0,refundPending=0,retained=0,testValue=0,discounts=0;
+ for(const a of r.rows){const done=a.status==='completed',live=a.payment_mode==='stripe'&&a.provider_live&&['paid','refunded','refund_pending','refund_failed'].includes(a.payment_state??'');const paid=live?a.paid_cents:0,returned=live&&a.payment_state==='refunded'?a.paid_cents:0;
+ completed+=Number(done);cancelled+=Number(a.status==='cancelled');noShow+=Number(a.status==='no_show');value+=done?a.total_cents:0;discounts+=done?a.discount_cents:0;collected+=paid;refunded+=returned;refundPending+=live&&['refund_pending','refund_failed'].includes(a.payment_state??'')?paid:0;retained+=live&&a.outcome==='deposit_retained'&&a.payment_state==='paid'?paid:0;testValue+=done&&(a.payment_mode==='simulation'||a.payment_mode==='stripe'&&!a.provider_live)?a.total_cents:0;
+ for(const x of [byDay.get(a.day),byShop.get(a.shop_id)])if(x){x.appointments++;x.completed+=Number(done);x.value+=done?a.total_cents:0;x.collected+=paid;x.refunded+=returned;}
+ }
+ const zones=new Map<string,number>();for(const s of r.shops){const key=s.municipality+', '+s.state;zones.set(key,(zones.get(key)??0)+1)}
+ return {shops,days,zones:[...zones].map(([name,total])=>({name,total})).sort((a,b)=>b.total-a.total||a.name.localeCompare(b.name)),totalShops:r.shops.length,visible:r.shops.filter(s=>s.visible).length,suspended:r.shops.filter(s=>s.suspended).length,paused:r.shops.filter(s=>!s.visible&&!s.suspended).length,verified:r.shops.filter(s=>s.verified).length,appointments:r.rows.length,completed,cancelled,noShow,value,collected,refunded,refundPending,retained,testValue,discounts,net:collected-refunded,ticket:completed?Math.round(value/completed):0};
+}

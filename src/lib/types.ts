@@ -1,4 +1,4 @@
-export type Shop={verified?:boolean;id:string;owner_id:string;name:string;description:string;address:string;municipality:string;state:string;country:string;lat:number;lng:number;timezone:string;open_hour:number;close_hour:number;days:number[];deposit_percent:number;cancel_hours:number;active:boolean};
+export type Shop={location_notes?:string;verified?:boolean;id:string;owner_id:string;name:string;description:string;address:string;municipality:string;state:string;country:string;lat:number;lng:number;timezone:string;open_hour:number;close_hour:number;days:number[];deposit_percent:number;cancel_hours:number;active:boolean};
 export type Barber={id:string;shop_id:string;name:string;specialty:string;active:boolean};
 export type Service={id:string;shop_id:string;name:string;description:string;kind:'cut'|'addon';price_cents:number;duration_minutes:number;active:boolean};
 export type Photo={id:string;shop_id:string;kind:string;barber_id:string|null;service_id:string|null;caption:string;storage_path:string};

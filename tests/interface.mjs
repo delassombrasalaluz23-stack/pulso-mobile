@@ -25,7 +25,7 @@ global.requestAnimationFrame=f=>f();
 function render(){i=0;return module.exports.default()}
 function all(root,predicate){const out=[];function walk(e){if(!e)return;if(Array.isArray(e)){e.forEach(walk);return}if(typeof e!=='object')return;if(predicate(e))out.push(e);walk(e.props?.children);walk(e.props?.footer)}walk(root);return out}
 let tree=render();const screen=all(tree,x=>x.type==='Screen')[0];assert.ok(screen.props.footer,'persistent booking footer');
-all(tree,x=>x.type==='Button'&&x.props.title==='Continuar')[0].props.onPress();assert.equal(state.section,'date');assert.equal(state.reviewOpen,false);
+all(tree,x=>x.type==='Button'&&x.props.title==='Reservar')[0].props.onPress();assert.equal(state.section,'date');assert.equal(state.reviewOpen,false);
 state.slot='2026-10-10T18:00:00Z';tree=render();all(tree,x=>x.type==='Button'&&x.props.title==='Revisar reserva')[0].props.onPress();assert.equal(state.reviewOpen,true);
 assert.equal(all(render(),x=>x.type==='Modal')[0].props.visible,true);
 const confirm=all(render(),x=>x.type==='Button'&&x.props.title==='Reservar con anticipo de prueba')[0];assert.equal(confirm.props.disabled,true,'terms acceptance still required');

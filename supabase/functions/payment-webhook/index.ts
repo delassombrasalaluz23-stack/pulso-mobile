@@ -7,7 +7,8 @@ Deno.serve(async(req:Request)=>{if(req.method!=='POST')return response({},405);c
   const session=await stripe('checkout/sessions/'+encodeURIComponent(event.data.object.id));
   if(session.payment_status==='paid'&&session.mode==='payment'){
    const intent=await stripe('payment_intents/'+encodeURIComponent(session.payment_intent)+'?expand[]=latest_charge');
-   if(intent.status!=='succeeded'||intent.amount_received!==session.amount_total)throw Error('Pago todavía no conciliado');
+   if(intent.status!=='succeeded'||intent.amount_received!==session.amount_total||intent.currency!==session.currency||intent.livemode!==session.livemode)throw Error('Pago todavía no conciliado');
+   const payment=await checked(admin.from('payments').select('shop_id,provider_live').eq('checkout_id',session.id).single());const account=await checked(admin.rpc('payment_account',{p_shop:payment.shop_id}));if(intent.transfer_data?.destination!==account?.stripe_account||payment.provider_live!==session.livemode)throw Error('Destino o entorno de pago inesperado');
    await checked(admin.rpc('settle_payment',{p_event:event.id,p_checkout:session.id,p_intent:intent.id,p_amount:session.amount_total,p_currency:session.currency,p_receipt:intent.latest_charge?.receipt_url??null}));
   }
  }
