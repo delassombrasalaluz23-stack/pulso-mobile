@@ -1,0 +1,17 @@
+import fs from 'node:fs';
+import ts from 'typescript';
+import assert from 'node:assert/strict';
+const compile=p=>ts.transpileModule(fs.readFileSync(p,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText;
+let key='sk_test_fixture',banks=[],posts=0,handler,paid=9000,cached=null;
+const deno={env:{get:k=>k==='STRIPE_SECRET_KEY'?key:k==='STRIPE_WEBHOOK_SECRET'?'fixture':k==='SUPABASE_URL'?'https://fixture.invalid':''},serve:fn=>handler=fn};
+const runtime={response:(v,status=200)=>new Response(JSON.stringify(v),{status}),paymentConfigured:()=>{},authenticated:async()=>({client:{rpc:async()=>({data:'appointment',error:null})},user:{id:'client'}}),checked:async p=>{const r=await p;if(r.error)throw r.error;return r.data},stripe:async(path,values)=>{if(values){posts++;return {id:'cs_fixture',url:'https://fixture.invalid/pay',livemode:true}}if(path.includes('external_accounts'))return {data:banks};return {id:'acct_fixture',charges_enabled:true,payouts_enabled:true}},adminClient:()=>({rpc:async()=>({data:{stripe_account:'acct_fixture',charges_enabled:true,payouts_enabled:true}}),from:table=>({select:()=>({eq:()=>({single:async()=>({data:table==='payments'?{amount_cents:paid,shop_id:'shop',created_at:new Date().toISOString(),request_id:'request',checkout_url:cached,provider_live:true}:{status:'pending_payment',payment_mode:'stripe',payment_expires_at:new Date(Date.now()+35*60000).toISOString()}})})}),update:()=>({eq:async()=>({data:null})})})})};
+const bank={exports:{}};new Function('require','exports','Deno',compile('supabase/functions/_shared/payment-bank.ts'))(()=>runtime,bank.exports,deno);
+new Function('require','exports','Deno',compile('supabase/functions/create-checkout/index.ts'))(p=>p.includes('payment-bank')?bank.exports:runtime,{},deno);
+const request=()=>handler(new Request('https://fixture.invalid',{method:'POST',body:'{}'}));
+assert.equal((await request()).status,400);assert.equal(posts,0);
+key='sk_live_fixture';assert.equal((await request()).status,400);assert.equal(posts,0);
+banks=[{object:'bank_account',currency:'mxn',default_for_currency:true,status:'errored'}];assert.equal((await request()).status,400);assert.equal(posts,0);
+banks[0].status='new';paid=0;assert.equal((await request()).status,400);assert.equal(posts,0);
+paid=9000;assert.equal((await request()).status,200);assert.equal(posts,1);
+cached='https://fixture.invalid/old';banks=[];assert.equal((await request()).status,400);assert.equal(posts,1);
+console.log('PASS checkout with mocked provider: live mode, positive deposit, valid payout bank, cached URL revalidation; no financial or network calls.');

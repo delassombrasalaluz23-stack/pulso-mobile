@@ -28,8 +28,8 @@ let tree=render();const screen=all(tree,x=>x.type==='Screen')[0];assert.ok(scree
 all(tree,x=>x.type==='Button'&&x.props.title==='Reservar')[0].props.onPress();assert.equal(state.section,'date');assert.equal(state.reviewOpen,false);
 state.slot='2026-10-10T18:00:00Z';tree=render();all(tree,x=>x.type==='Button'&&x.props.title==='Revisar reserva')[0].props.onPress();assert.equal(state.reviewOpen,true);
 assert.equal(all(render(),x=>x.type==='Modal')[0].props.visible,true);
-const confirm=all(render(),x=>x.type==='Button'&&x.props.title==='Reservar con anticipo de prueba')[0];assert.equal(confirm.props.disabled,true,'terms acceptance still required');
-state.accept=true;assert.equal(all(render(),x=>x.type==='Button'&&x.props.title==='Reservar con anticipo de prueba')[0].props.disabled,false);
-state.slotBusy=true;assert.equal(all(render(),x=>x.type==='Button'&&x.props.title==='Reservar con anticipo de prueba')[0].props.disabled,true,'availability recheck blocks confirmation');
+const confirm=all(render(),x=>x.type==='Button'&&x.props.title==='Pagar anticipo y reservar')[0];assert.equal(confirm.props.disabled,true,'terms acceptance still required');
+state.accept=true;assert.equal(all(render(),x=>x.type==='Button'&&x.props.title==='Pagar anticipo y reservar')[0].props.disabled,true,'bank gate remains required');state.paidMode=true;assert.equal(all(render(),x=>x.type==='Button'&&x.props.title==='Pagar anticipo y reservar')[0].props.disabled,false);
+state.slotBusy=true;assert.equal(all(render(),x=>x.type==='Button'&&x.props.title==='Pagar anticipo y reservar')[0].props.disabled,true,'availability recheck blocks confirmation');
 state.tab='team';tree=render();assert.equal(all(tree,x=>x.props?.step==='01').length,0,'service selection is hidden on team tab');assert.ok(all(tree,x=>x.type==='Screen')[0].props.footer,'booking remains reachable from team');
 console.log('PASS UI: sticky summary, missing time guidance, review before payment, consent gate, availability gate, profile tabs.');
